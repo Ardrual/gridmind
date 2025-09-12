@@ -25,6 +25,14 @@ Setup
    - `cd web && npm install`
    - `npm run dev`
 
+Make Targets
+- `make dev` — runs API and web concurrently (API is scaffolded; see API Status).
+- `make web` — starts the React/Vite dev server in `web/`.
+- `make run-api` — attempts `uvicorn app.main:app --reload`. See API Status below.
+
+API Status
+- The FastAPI app under `app/` is a placeholder. Until a minimal `app = FastAPI()` is added in `app/main.py`, `uvicorn app.main:app` will not start. The `make run-api` target is kept as a convenience hook for when the API is implemented.
+
 Ingest & Vectorize
 - Download only: `python -m scripts.ingest --download`
   - Reads `data/manifest.json` and saves PDFs to `data/raw/<id>.pdf`.
@@ -38,11 +46,59 @@ Ingest & Vectorize
   - `--embedding-model gemini-embedding-001` (default or env `GEMINI_EMBEDDING_MODEL`)
   - `--embedding-dim 3072` (optional output dimensionality)
 
+Citations
+- Each stored chunk includes metadata: `file_id`, `source` (PDF path), `page` (1‑based), and `chunk`.
+- UIs can render citations like “Clayton CA Wildfire Tips (p. 3)” or “data/raw/clayton_evacuate_tips.pdf — p. 3”.
+- For linkable citations, consider enriching metadata (future change) with `title` and `url` from the manifest and linking to `url#page=<page>`.
+
+Manifest Schema
+- Documents are declared in `data/manifest.json` with fields:
+  ```json
+  {
+    "id": "clayton_evacuate_tips",
+    "title": "Clayton CA Fire: Wildfire Preparation & Evacuation Tips",
+    "url": "https://claytonca.gov/fc/police/Wildfire-Preparation-and-Evacuation-Tips.pdf",
+    "license": "municipal release",
+    "sha256": ""
+  }
+  ```
+- The `id` becomes `file_id` in vector store metadata and the PDF filename (`data/raw/<id>.pdf`).
+
+Vector Store Details
+- Store: Chroma persistent DB at `data/chroma/`.
+- Document IDs: `<file_id>-<page:04d>-<chunk:04d>` (e.g., `clayton_evacuate_tips-0003-0001`).
+- Reset: delete `data/chroma/` to fully rebuild the vector store.
+
 Gemini Setup
 - Create an API key in Google AI Studio and place it in `.env` as `GOOGLE_API_KEY` (or `GEMINI_API_KEY`).
 - The ingest script auto-loads `.env` and uses the Google Gen AI SDK (`google-genai`) to call the Gemini Embedding API.
-- If no key is found, vectorization fails with a clear error. Ensure one of `GOOGLE_API_KEY` or `GEMINI_API_KEY` is set.
+- If no key is found, vectorization fails with a clear error. Ensure one of `GOOGLE_API_KEY` or `GEMINI_API_KEY` is set. If both are set, `GOOGLE_API_KEY` is used.
+- The embedding model defaults to `gemini-embedding-001`. If `GEMINI_EMBEDDING_MODEL` is unset or empty, the default is used.
 - At query time, use the same embedding model for the user query to ensure vector-space compatibility; your generator LLM (Gemini 1.x) can be different from the embedding model.
+
+Troubleshooting
+- Missing API key: set `GOOGLE_API_KEY` or `GEMINI_API_KEY` in `.env` (or export it in your shell).
+- “model is required”: ensure `GEMINI_EMBEDDING_MODEL` is not an empty string in `.env`, or pass `--embedding-model`.
+- Network required: embeddings call the Google AI API. Ensure your environment has outbound network access.
+
+Verify Vector Store
+```python
+import chromadb, os
+client = chromadb.PersistentClient(path=os.path.join('data', 'chroma'))
+col = client.get_or_create_collection('docs')
+print('count:', col.count())
+res = col.get(include=['metadatas','documents','embeddings'], limit=1)
+print('sample_meta:', (res.get('metadatas') or [''])[0])
+```
+
+Sanity Check Commands
+- Pytest (network-free): `python -m pytest -q tests/test_chroma_sanity.py`
+  - Skips gracefully if `data/chroma/` or the `docs` collection is missing or empty.
+- Manual check script: `python -m scripts.check_chroma`
+  - Prints collection size and peeks a few items (ids, file_id, page, source).
+  - Optional query (requires Gemini API key):
+    - `python -m scripts.check_chroma --query "what is this corpus about?" --k 5`
+  - Options: `--db-dir data/chroma`, `--collection docs`, `--embedding-model`, `--embedding-dim`.
 
 Notes
 - Ensure `data/manifest.json` entries include a stable `id` and valid PDF `url`.

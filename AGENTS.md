@@ -11,9 +11,12 @@
 - Backend (dev): `uvicorn app.main:app --reload` or `make run-api` (API is scaffolded).
 - Ingest PDFs: `python -m scripts.ingest --download` (reads `data/manifest.json`, writes `data/raw/`).
 - Vectorize PDFs: `python -m scripts.ingest --vectorize` (conditionally downloads if `data/raw/` is empty; then parses with PyMuPDF and embeds into Chroma at `data/chroma/` using Gemini embeddings).
+- Chroma sanity test (no network): `python -m pytest -q tests/test_chroma_sanity.py`
+- Manual DB check: `python -m scripts.check_chroma` (optional `--query` requires API key)
 - Frontend (dev): `cd web && npm install && npm run dev` or `make web`.
 - Full dev loop: `make dev` (runs API + web concurrently).
 - Note: `make data/ingest` entries reference future flags; prefer the explicit ingest command above for now.
+ - Some Makefile targets are placeholders; prefer explicit `python -m scripts.ingest` commands until targets are updated.
 
 ## Coding Style & Naming Conventions
 - Python: PEP 8, 4‑space indent, type hints required for new/changed code.
@@ -37,3 +40,8 @@
 - Never commit secrets; use `.env` (local) and keep `.env.example` updated.
 - Respect document licenses in `manifest.json`; avoid adding proprietary PDFs to the repo—reference by URL.
  - Ingest auto-loads `.env` at runtime; ensure `GOOGLE_API_KEY` or `GEMINI_API_KEY` is present for Gemini embeddings.
+ - If both `GOOGLE_API_KEY` and `GEMINI_API_KEY` are set, `GOOGLE_API_KEY` is used. If `GEMINI_EMBEDDING_MODEL` is empty or unset, default `gemini-embedding-001` is used.
+
+## Citation Metadata
+- Retain `page` and `file_id` in metadata for human-readable citations.
+- Consider enriching with `title` and `url` from `manifest.json` for linkable citations (e.g., `url#page=<page>`), when modifying ingest.
