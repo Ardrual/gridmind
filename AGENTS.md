@@ -10,6 +10,7 @@
 ## Build, Test, and Development Commands
 - Backend (dev): `uvicorn app.main:app --reload` or `make run-api` (API is scaffolded).
 - Ingest PDFs: `python -m scripts.ingest --download` (reads `data/manifest.json`, writes `data/raw/`).
+- Vectorize PDFs: `python -m scripts.ingest --vectorize` (conditionally downloads if `data/raw/` is empty; then parses with PyMuPDF and embeds into Chroma at `data/chroma/` using Gemini embeddings).
 - Frontend (dev): `cd web && npm install && npm run dev` or `make web`.
 - Full dev loop: `make dev` (runs API + web concurrently).
 - Note: `make data/ingest` entries reference future flags; prefer the explicit ingest command above for now.
@@ -35,3 +36,4 @@
 ## Security & Configuration Tips
 - Never commit secrets; use `.env` (local) and keep `.env.example` updated.
 - Respect document licenses in `manifest.json`; avoid adding proprietary PDFs to the repo—reference by URL.
+ - Ingest auto-loads `.env` at runtime; ensure `GOOGLE_API_KEY` or `GEMINI_API_KEY` is present for Gemini embeddings.
