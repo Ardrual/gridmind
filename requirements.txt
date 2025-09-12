@@ -1,0 +1,22 @@
+# core api + typing
+fastapi==0.116.1
+uvicorn[standard]==0.35.0
+pydantic==2.11.7
+typing-extensions>=4.12.2
+
+# rag stack (langchain route)
+langchain==0.3.27
+langchain-openai==0.3.33
+
+# vector store (simple, local)
+chromadb==1.0.21
+
+# pdf ingest
+pymupdf==1.26.4
+
+# env + http
+python-dotenv==1.1.1
+httpx>=0.27.2
+
+# dev niceties (optional; drop if you’re purist)
+rich>=13.9.2

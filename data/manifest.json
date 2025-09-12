@@ -1,0 +1,37 @@
+[
+  {
+    "id": "field_ops_guide",
+    "title": "Field Operations Guide - FEMA USFA",
+    "url": "https://www.usfa.fema.gov/downloads/pdf/publications/field_operations_guide.pdf",
+    "license": "public domain / US government",
+    "sha256": ""
+  },
+  {
+    "id": "wildfire_action_plan_2024",
+    "title": "Wildfire Action Plan 2024 - Ready, Set, Go!",
+    "url": "https://readyforwildfire.org/wp-content/uploads/2024/04/wildfire_action_plan_2024-update.pdf",
+    "license": "public release",
+    "sha256": ""
+  },
+  {
+    "id": "residential_evacs_ca_dds",
+    "title": "Wildfire Evacuation Preparedness for Residential Facility Staff - CA DDS",
+    "url": "https://www.dds.ca.gov/wp-content/uploads/2023/05/CA_DDS_Wildfire_Evacuation_Preparedness_for_Residential_Facility_Staff.pdf",
+    "license": "public release",
+    "sha256": ""
+  },
+  {
+    "id": "stanford_wildfire_evac_guide",
+    "title": "Wildfire Preparedness & Evacuation Guide - Stanford",
+    "url": "https://cardinalready.stanford.edu/wp-content/uploads/SU-Wildfire-Preparedness-Evacuation-Guide-WPEG.pdf",
+    "license": "public release / university",
+    "sha256": ""
+  },
+  {
+    "id": "clayton_evacuate_tips",
+    "title": "Clayton CA Fire: Wildfire Preparation & Evacuation Tips",
+    "url": "https://claytonca.gov/fc/police/Wildfire-Preparation-and-Evacuation-Tips.pdf",
+    "license": "municipal release",
+    "sha256": ""
+  }
+]
