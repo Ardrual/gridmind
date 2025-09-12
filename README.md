@@ -33,6 +33,13 @@ Make Targets
 API Status
 - The FastAPI app under `app/` is a placeholder. Until a minimal `app = FastAPI()` is added in `app/main.py`, `uvicorn app.main:app` will not start. The `make run-api` target is kept as a convenience hook for when the API is implemented.
 
+RAG Query Demo
+- This repo now includes a minimal LangChain RetrievalQA pipeline using Gemini for generation and a local Chroma DB for retrieval.
+- Populate the vector store first, then run the demo script to ask a question (e.g., the 10 Standard Fire Orders):
+  - `python -m scripts.ingest --vectorize`
+  - `python -m scripts.query_demo --query "What are the 10 Standard Fire Orders?" --k 5`
+- The demo prints the final answer, latency, and top-k citations (title, page, URL when available, plus a snippet).
+
 Ingest & Vectorize
 - Download only: `python -m scripts.ingest --download`
   - Reads `data/manifest.json` and saves PDFs to `data/raw/<id>.pdf`.
@@ -76,6 +83,13 @@ Gemini Setup
 - The embedding model defaults to `gemini-embedding-001`. If `GEMINI_EMBEDDING_MODEL` is unset or empty, the default is used.
 - At query time, use the same embedding model for the user query to ensure vector-space compatibility; your generator LLM (Gemini 1.x) can be different from the embedding model.
 
+Query-Time Config (env)
+- `CHROMA_DB_DIR` (default: `data/chroma`) — path to Chroma persistence.
+- `CHROMA_COLLECTION` (default: `docs`) — collection name.
+- `GEMINI_EMBEDDING_MODEL` (default: `gemini-embedding-001`) — must match ingest.
+- `GEMINI_EMBEDDING_DIM` (optional int) — set if you used `output_dimensionality` during ingest.
+- `GEMINI_LLM_MODEL` (default: `gemini-1.5-flash`) — the generation model for answers.
+
 Troubleshooting
 - Missing API key: set `GOOGLE_API_KEY` or `GEMINI_API_KEY` in `.env` (or export it in your shell).
 - “model is required”: ensure `GEMINI_EMBEDDING_MODEL` is not an empty string in `.env`, or pass `--embedding-model`.
@@ -99,6 +113,11 @@ Sanity Check Commands
   - Optional query (requires Gemini API key):
     - `python -m scripts.check_chroma --query "what is this corpus about?" --k 5`
   - Options: `--db-dir data/chroma`, `--collection docs`, `--embedding-model`, `--embedding-dim`.
+
+RAG Internals
+- Retrieval: a custom retriever queries Chroma using a Gemini query embedding (via the same embedding path as ingest) for consistency.
+- Generation: a minimal Gemini LLM wrapper calls `google-genai` for text generation.
+- Chain: LangChain `RetrievalQA` with `chain_type="stuff"` and `return_source_documents=True`.
 
 Notes
 - Ensure `data/manifest.json` entries include a stable `id` and valid PDF `url`.
