@@ -15,6 +15,8 @@
 - Chroma sanity test (no network): `python -m pytest -q tests/test_chroma_sanity.py`
 - Manual DB check: `python -m scripts.check_chroma` (optional `--query` requires API key)
 - Frontend (dev): `cd web && npm install && npm run dev` or `make web`.
+- Configure `web/.env` with `VITE_API_BASE_URL` for the FastAPI host (default `http://localhost:8000`).
+- Styling: Tailwind CSS utilities (no standalone stylesheets).
 - Full dev loop: `make dev` (runs API + web concurrently).
 - Note: `make data/ingest` entries reference future flags; prefer the explicit ingest command above for now.
  - Some Makefile targets are placeholders; prefer explicit `python -m scripts.ingest` commands until targets are updated.

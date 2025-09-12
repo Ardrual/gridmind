@@ -1,7 +1,7 @@
 Gridmind — FastAPI + React/Vite RAG Playground
 
 - Backend: FastAPI service (planned) to query a small document set defined in `data/manifest.json`.
-- Frontend: simple React/Vite app in `web/` (for querying and UI experiments).
+- Frontend: React/Vite UI in `web/` that calls the FastAPI `/query` endpoint.
 - Ingest: a script that downloads PDFs listed in the manifest into `data/raw/` and can parse/vectorize them into a local ChromaDB store.
 
 Overview
@@ -23,7 +23,9 @@ Setup
      - `pip install -r requirements.txt`
 2) Frontend (optional, for local UI):
    - `cd web && npm install`
+   - Copy `web/.env.example` to `web/.env` and set `VITE_API_BASE_URL` to your FastAPI host (defaults to http://localhost:8000).
    - `npm run dev`
+   - Styling is handled by Tailwind CSS utility classes.
 
 Make Targets
 - `make dev` — runs API and web concurrently (API is scaffolded; see API Status).
