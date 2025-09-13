@@ -1,16 +1,16 @@
 Gridmind — FastAPI + React/Vite RAG Playground
 
-- Backend: FastAPI service (planned) to query a small document set defined in `data/manifest.json`.
-- Frontend: simple React/Vite app in `web/` (for querying and UI experiments).
+- Backend: FastAPI service to query a small document set defined in `data/manifest.json`.
+- Frontend: React/Vite UI in `web/` that calls the FastAPI `/query` endpoint.
 - Ingest: a script that downloads PDFs listed in the manifest into `data/raw/` and can parse/vectorize them into a local ChromaDB store.
 
 Overview
 - Documents are declared in `data/manifest.json` with fields like `id`, `title`, `url`, `license`, `sha256`.
 - The ingest step fetches each `url` and stores it locally as `data/raw/<id>.pdf`.
-- API endpoints and retrieval logic (RAG) are scaffolded and will be added under `app/`.
+- API endpoints and retrieval logic (RAG) live under `app/`.
 
 Repo Structure
-- `app/` — FastAPI app scaffolding (routes coming soon)
+- `app/` — FastAPI app (RAG endpoints)
 - `data/manifest.json` — list of source documents to ingest
 - `data/raw/` — downloaded PDFs (created by the ingest script)
 - `scripts/ingest.py` — ingest utilities (download + parse/vectorize)
@@ -23,15 +23,21 @@ Setup
      - `pip install -r requirements.txt`
 2) Frontend (optional, for local UI):
    - `cd web && npm install`
+   - Copy `web/.env.example` to `web/.env` and set `VITE_API_BASE_URL` to your FastAPI host (defaults to http://localhost:8000).
    - `npm run dev`
+   - Styling is handled by Tailwind CSS utility classes.
+   - Tailwind CSS v4 is config-less here: `web/src/index.css` contains `@import "tailwindcss";` and PostCSS runs with `@tailwindcss/postcss` + `autoprefixer` (see `web/postcss.config.js`). No `tailwind.config.js` is required unless you customize.
 
 Make Targets
-- `make dev` — runs API and web concurrently (API is scaffolded; see API Status).
-- `make web` — starts the React/Vite dev server in `web/`.
-- `make run-api` — attempts `uvicorn app.main:app --reload`. See API Status below.
+- `make dev` — runs API and web concurrently.
+- `make web` — installs web deps if needed and starts the React/Vite dev server in `web/`.
+- `make web-install` — installs web deps.
+- `make web-build` — builds the web app for production.
+- `make run-api` — runs `uvicorn app.main:app --reload`.
 
 API Status
-- The FastAPI app under `app/` is a placeholder. Until a minimal `app = FastAPI()` is added in `app/main.py`, `uvicorn app.main:app` will not start. The `make run-api` target is kept as a convenience hook for when the API is implemented.
+- The FastAPI app under `app/` is implemented. It exposes `POST /query` and `GET /healthz`.
+- CORS is enabled for the Vite dev origin (`http://localhost:5173`) and optionally `FRONTEND_ORIGIN` from the environment.
 
 RAG Query Demo
 - This repo now includes a minimal LangChain RetrievalQA pipeline using Gemini for generation and a local Chroma DB for retrieval.

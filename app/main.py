@@ -1,10 +1,26 @@
 from fastapi import Depends, FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
+import os
 
 from app.deps import RagRunner, get_rag_runner
 from app.models import Answer, QueryRequest
 
 
 app = FastAPI(title="Gridmind API", version="0.1.0")
+
+# Minimal CORS for local Vite dev server
+_frontend_origin = os.getenv("FRONTEND_ORIGIN")
+allow_origins = ["http://localhost:5173"]
+if _frontend_origin:
+    allow_origins.append(_frontend_origin)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=allow_origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 
 @app.post("/query", response_model=Answer)
