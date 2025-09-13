@@ -1,5 +1,8 @@
+SHELL := /bin/bash
+
+.PHONY: run-api data ingest dev web web-install web-build
+
 run-api:
-	# Requires a FastAPI app in app/main.py (placeholder today)
 	uvicorn app.main:app --reload
 
 # Legacy target name kept; downloads PDFs from manifest into data/raw/
@@ -11,7 +14,16 @@ ingest:
 	python -m scripts.ingest --vectorize --manifest data/manifest.json
 
 dev:
-	make -j2 run-api web
+	@echo "Starting API and web dev servers..."
+	@bash -lc 'trap "kill 0" EXIT; \
+	  uvicorn app.main:app --reload & \
+	  cd web && ([ -d node_modules ] || npm ci || npm install) && npm run dev'
 
 web:
-	cd web && npm run dev
+	cd web && ([ -d node_modules ] || npm ci || npm install) && npm run dev
+
+web-install:
+	cd web && ([ -d node_modules ] || npm ci || npm install)
+
+web-build:
+	cd web && ([ -d node_modules ] || npm ci || npm install) && npm run build

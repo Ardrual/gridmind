@@ -8,7 +8,7 @@
 - `tests/` — Python tests and fixtures.
 
 ## Build, Test, and Development Commands
-- Backend (dev): `uvicorn app.main:app --reload` or `make run-api` (API is scaffolded).
+- Backend (dev): `uvicorn app.main:app --reload` or `make run-api`.
 - Ingest PDFs: `python -m scripts.ingest --download` (reads `data/manifest.json`, writes `data/raw/`).
 - Vectorize PDFs: `python -m scripts.ingest --vectorize` (conditionally downloads if `data/raw/` is empty; then parses with PyMuPDF and embeds into Chroma at `data/chroma/` using Gemini embeddings).
 - RAG demo query: `python -m scripts.query_demo --query "What are the 10 Standard Fire Orders?" --k 5` (requires API key and a populated Chroma DB).
@@ -16,10 +16,9 @@
 - Manual DB check: `python -m scripts.check_chroma` (optional `--query` requires API key)
 - Frontend (dev): `cd web && npm install && npm run dev` or `make web`.
 - Configure `web/.env` with `VITE_API_BASE_URL` for the FastAPI host (default `http://localhost:8000`).
-- Styling: Tailwind CSS utilities (no standalone stylesheets).
+ - Styling: Tailwind CSS v4 (config-less). `web/src/index.css` uses `@import "tailwindcss";` and PostCSS plugin `@tailwindcss/postcss` expands styles.
 - Full dev loop: `make dev` (runs API + web concurrently).
-- Note: `make data/ingest` entries reference future flags; prefer the explicit ingest command above for now.
- - Some Makefile targets are placeholders; prefer explicit `python -m scripts.ingest` commands until targets are updated.
+- Note: prefer explicit `python -m scripts.ingest` commands as shown.
 
 ## Coding Style & Naming Conventions
 - Python: PEP 8, 4‑space indent, type hints required for new/changed code.
