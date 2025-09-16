@@ -10,10 +10,14 @@
 ## Build, Test, and Development Commands
 - Backend (dev): `uvicorn app.main:app --reload` or `make run-api`.
 - Ingest PDFs: `python -m scripts.ingest --download` (reads `data/manifest.json`, writes `data/raw/`).
-- Vectorize PDFs: `python -m scripts.ingest --vectorize` (conditionally downloads if `data/raw/` is empty; then parses with PyMuPDF and embeds into Chroma at `data/chroma/` using Gemini embeddings).
+- Vectorize PDFs: `python -m scripts.ingest --vectorize` (conditionally downloads if `data/raw/` is empty; then parses with PyMuPDF and embeds using Gemini embeddings).
+  - Default backend is Chroma at `data/chroma/`.
+  - Use Postgres/pgvector via LangChain with: `--vector-store pgvector --pg-uri postgresql+psycopg://user:pass@host:5432/db`.
 - RAG demo query: `python -m scripts.query_demo --query "What are the 10 Standard Fire Orders?" --k 5` (requires API key and a populated Chroma DB).
 - Chroma sanity test (no network): `python -m pytest -q tests/test_chroma_sanity.py`
-- Manual DB check: `python -m scripts.check_chroma` (optional `--query` requires API key)
+- Manual DB checks:
+  - Chroma: `python -m scripts.check_chroma` (optional `--query` requires API key)
+  - pgvector: `python -m scripts.check_pgvector --pg-uri postgresql+psycopg://user:pass@host:5432/db` (optional `--query`)
 - Frontend (dev): `cd web && npm install && npm run dev` or `make web`.
 - Configure `web/.env` with `VITE_API_BASE_URL` for the FastAPI host (default `http://localhost:8000`).
  - Styling: Tailwind CSS v4 (config-less). `web/src/index.css` uses `@import "tailwindcss";` and PostCSS plugin `@tailwindcss/postcss` expands styles.
@@ -44,7 +48,9 @@
  - Ingest auto-loads `.env` at runtime; ensure `GOOGLE_API_KEY` or `GEMINI_API_KEY` is present for Gemini embeddings.
  - If both `GOOGLE_API_KEY` and `GEMINI_API_KEY` are set, `GOOGLE_API_KEY` is used. If `GEMINI_EMBEDDING_MODEL` is empty or unset, default `gemini-embedding-001` is used.
   - Query-time env (used by `app/rag.py` and `scripts/query_demo.py`):
-    - `CHROMA_DB_DIR` (default `data/chroma`), `CHROMA_COLLECTION` (default `docs`).
+    - `VECTOR_BACKEND` (default `chroma`; set `pgvector` to use Postgres)
+    - Chroma: `CHROMA_DB_DIR` (default `data/chroma`), `CHROMA_COLLECTION` (default `docs`).
+    - pgvector: `PGVECTOR_URL` (or `DATABASE_URL`), `PGVECTOR_COLLECTION` (default `docs`).
     - `GEMINI_EMBEDDING_MODEL` (default `gemini-embedding-001`), `GEMINI_EMBEDDING_DIM` (optional int to match ingest dimensionality).
     - `GEMINI_LLM_MODEL` (default `gemini-1.5-flash`).
 

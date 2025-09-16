@@ -13,6 +13,9 @@ except Exception:
 
 import requests
 
+# Shared embeddings helper used by both app and scripts
+from app.embeddings import embed_texts_gemini as _embed_texts_gemini_impl  # noqa: N812
+
 # Heavy deps are imported lazily inside functions to avoid import costs
 
 def download_manifest_pdfs(manifest_path: str, raw_dir: str) -> None:
@@ -104,49 +107,14 @@ def _embed_texts_gemini(
     output_dimensionality: Optional[int] = None,
     batch_size: int = 100,
 ) -> List[List[float]]:
-    """Embed a list of texts with the Gemini Embedding API using google-genai.
-
-    Requires one of GOOGLE_API_KEY or GEMINI_API_KEY to be set in the env.
-    """
-    try:
-        from google import genai  # type: ignore
-        from google.genai import types  # type: ignore
-    except Exception as e:  # pragma: no cover
-        raise RuntimeError(
-            "google-genai is required for Gemini embeddings. Install with `pip install google-genai`."
-        ) from e
-
-    # Prefer explicit API key wiring so we can surface a clearer error.
-    api_key = os.getenv("GOOGLE_API_KEY") or os.getenv("GEMINI_API_KEY")
-    if not api_key:
-        raise ValueError(
-            "Missing Google API key. Set GOOGLE_API_KEY or GEMINI_API_KEY (e.g., in a .env file)."
-        )
-
-    client = genai.Client(api_key=api_key)
-
-    all_embeddings: List[List[float]] = []
-
-    def batched(seq: List[str], size: int) -> Iterable[List[str]]:
-        for i in range(0, len(seq), size):
-            yield seq[i : i + size]
-
-    for chunk in batched(texts, batch_size):
-        cfg_kwargs = {"task_type": task_type}
-        if output_dimensionality is not None:
-            cfg_kwargs["output_dimensionality"] = output_dimensionality
-        cfg = types.EmbedContentConfig(**cfg_kwargs)  # type: ignore[arg-type]
-
-        # Batch embed with a single call; SDK accepts list for `contents`.
-        resp = client.models.embed_content(
-            model=model,
-            contents=chunk,
-            config=cfg,
-        )
-        # resp.embeddings is a list of ContentEmbedding with .values
-        all_embeddings.extend([list(e.values) for e in resp.embeddings])
-
-    return all_embeddings
+    """Back-compat wrapper delegating to app.embeddings.embed_texts_gemini."""
+    return _embed_texts_gemini_impl(  # type: ignore[misc]
+        texts,
+        model=model,
+        task_type=task_type,
+        output_dimensionality=output_dimensionality,
+        batch_size=batch_size,
+    )
 
 
 def _vectorize_pdfs(
@@ -224,13 +192,135 @@ def _vectorize_pdfs(
 
     print(f"Vectorization complete. Chroma persisted at: {os.path.abspath(db_dir)}")
 
+
+def _vectorize_pdfs_pg(
+    raw_dir: str,
+    pg_uri: str,
+    collection_name: str = "docs",
+    chunk_size: int = 1000,
+    overlap: int = 200,
+    batch_size: int = 64,
+    *,
+    embedding_model: str = "gemini-embedding-001",
+    output_dimensionality: Optional[int] = None,
+) -> None:
+    """Parse PDFs and upsert into Postgres+pgvector using LangChain PGVector.
+
+    - Uses the same Gemini embeddings pathway via a LangChain Embeddings wrapper.
+    - Requires `langchain-postgres` and `psycopg` installed, and the `vector`
+      extension enabled in the target database.
+    """
+    from app.embeddings import GeminiEmbeddings
+
+    try:
+        # Prefer root import of PGVector. Different versions expose different
+        # connection options; we handle them dynamically below.
+        from langchain_postgres import PGVector  # type: ignore
+    except Exception as e:  # pragma: no cover
+        raise RuntimeError(
+            "langchain-postgres is required for pgvector. Install with `pip install langchain-postgres psycopg[binary]`."
+        ) from e
+
+    pdf_paths = _pdfs_in_dir(raw_dir)
+    if not pdf_paths:
+        print(f"No PDFs found in {raw_dir}; nothing to vectorize.")
+        return
+
+    embeddings = GeminiEmbeddings(
+        model=embedding_model,
+        output_dimensionality=output_dimensionality,
+    )
+    # Build PGVector store with broad compatibility across versions.
+    store = None
+    # 1) Try connection as a string via `connection` kw
+    try:
+        store = PGVector(
+            embeddings=embeddings,
+            collection_name=collection_name,
+            connection=pg_uri,  # many versions accept a URI string here
+            use_jsonb=True,
+        )
+    except TypeError:
+        # 2) Try newer-style `connection_string` kw
+        try:
+            store = PGVector(
+                embeddings=embeddings,
+                collection_name=collection_name,
+                connection_string=pg_uri,
+                use_jsonb=True,
+            )
+        except TypeError:
+            # 3) Try helper dataclasses
+            try:
+                from langchain_postgres.vectorstores import ConnectionArgs  # type: ignore
+                conn = ConnectionArgs.from_uri(pg_uri)
+            except Exception:
+                try:
+                    from langchain_postgres.vectorstores import Connection  # type: ignore
+                    conn = Connection.from_uri(pg_uri)  # type: ignore[attr-defined]
+                except Exception as e:
+                    raise RuntimeError(
+                        f"Unable to configure PGVector connection for URI. Please upgrade langchain-postgres. Underlying error: {e}"
+                    )
+            store = PGVector(
+                embeddings=embeddings,
+                collection_name=collection_name,
+                connection=conn,
+                use_jsonb=True,
+            )
+
+    for pdf_path in pdf_paths:
+        file_stem = os.path.splitext(os.path.basename(pdf_path))[0]
+        print(f"Vectorizing: {pdf_path}")
+
+        page_texts = _extract_text_from_pdf(pdf_path)
+        all_chunks: List[Tuple[str, dict]] = []
+        for page_no, text in page_texts:
+            chunks = _chunk_text(text, chunk_size=chunk_size, overlap=overlap)
+            for idx, chunk in enumerate(chunks):
+                meta = {
+                    "source": os.path.relpath(pdf_path),
+                    "page": page_no + 1,
+                    "chunk": idx,
+                    "file_id": file_stem,
+                }
+                all_chunks.append((chunk, meta))
+
+        if not all_chunks:
+            print(f"No text extracted from {pdf_path}; skipping.")
+            continue
+
+        def iter_batches(items: List[Tuple[str, dict]], size: int) -> Iterable[List[Tuple[str, dict]]]:
+            for i in range(0, len(items), size):
+                yield items[i:i + size]
+
+        for batch_idx, batch in enumerate(iter_batches(all_chunks, batch_size)):
+            ids = [f"{file_stem}-{m['page']:04d}-{m['chunk']:04d}" for _, m in batch]
+            docs = [t for t, _ in batch]
+            metas = [m for _, m in batch]
+            # Ensure idempotency: best-effort delete then insert to handle re-runs
+            try:
+                store.delete(ids=ids)  # type: ignore[attr-defined]
+            except Exception:
+                pass
+            # PGVector computes embeddings via the provided Embeddings class
+            store.add_texts(texts=docs, metadatas=metas, ids=ids)
+            print(
+                f"  upserted batch {batch_idx + 1}/{(len(all_chunks) + batch_size - 1)//batch_size} ({len(ids)} items)"
+            )
+
+    print("Vectorization complete. Stored in Postgres via pgvector.")
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Ingest and process data files.")
     parser.add_argument('--download', action='store_true', help='Download PDFs from manifest into data/raw')
-    parser.add_argument('--vectorize', action='store_true', help='Parse PDFs in data/raw and embed into local ChromaDB')
+    parser.add_argument('--vectorize', action='store_true', help='Parse PDFs in data/raw and embed into vector store')
     parser.add_argument('--manifest', default=os.path.join('data', 'manifest.json'), help='Path to manifest.json')
     parser.add_argument('--raw-dir', default=os.path.join('data', 'raw'), help='Directory for raw PDFs')
-    parser.add_argument('--db-dir', default=os.path.join('data', 'chroma'), help='Chroma persistence directory')
+    parser.add_argument('--db-dir', default=os.path.join('data', 'chroma'), help='Chroma persistence directory (if using Chroma)')
+    parser.add_argument('--collection', default=os.getenv('CHROMA_COLLECTION') or os.getenv('PGVECTOR_COLLECTION') or 'docs', help='Collection name for vector store')
+    parser.add_argument('--vector-store', choices=['chroma', 'pgvector'], default=os.getenv('VECTOR_BACKEND') or 'chroma', help='Vector store backend')
+    parser.add_argument('--pg-uri', default=os.getenv('PGVECTOR_URL') or os.getenv('DATABASE_URL') or '', help='Postgres URI for pgvector (postgresql+psycopg://user:pass@host:port/db)')
     # If GEMINI_EMBEDDING_MODEL is set but empty, fall back to default
     _env_model = os.getenv('GEMINI_EMBEDDING_MODEL')
     parser.add_argument(
@@ -244,12 +334,24 @@ def main() -> None:
     if args.download and args.vectorize:
         # Run download first, then vectorize whatever is in raw-dir.
         download_manifest_pdfs(args.manifest, args.raw_dir)
-        _vectorize_pdfs(
-            args.raw_dir,
-            args.db_dir,
-            embedding_model=(args.embedding_model or 'gemini-embedding-001'),
-            output_dimensionality=args.embedding_dim,
-        )
+        if args.vector_store == 'pgvector':
+            if not args.pg_uri:
+                raise SystemExit("--pg-uri (or PGVECTOR_URL) is required when using --vector-store pgvector")
+            _vectorize_pdfs_pg(
+                args.raw_dir,
+                args.pg_uri,
+                collection_name=args.collection,
+                embedding_model=(args.embedding_model or 'gemini-embedding-001'),
+                output_dimensionality=args.embedding_dim,
+            )
+        else:
+            _vectorize_pdfs(
+                args.raw_dir,
+                args.db_dir,
+                collection_name=args.collection,
+                embedding_model=(args.embedding_model or 'gemini-embedding-001'),
+                output_dimensionality=args.embedding_dim,
+            )
         return
 
     if args.download:
@@ -263,12 +365,24 @@ def main() -> None:
             download_manifest_pdfs(args.manifest, args.raw_dir)
         else:
             print(f"Found existing PDFs in {args.raw_dir}; skipping download.")
-        _vectorize_pdfs(
-            args.raw_dir,
-            args.db_dir,
-            embedding_model=(args.embedding_model or 'gemini-embedding-001'),
-            output_dimensionality=args.embedding_dim,
-        )
+        if args.vector_store == 'pgvector':
+            if not args.pg_uri:
+                raise SystemExit("--pg-uri (or PGVECTOR_URL) is required when using --vector-store pgvector")
+            _vectorize_pdfs_pg(
+                args.raw_dir,
+                args.pg_uri,
+                collection_name=args.collection,
+                embedding_model=(args.embedding_model or 'gemini-embedding-001'),
+                output_dimensionality=args.embedding_dim,
+            )
+        else:
+            _vectorize_pdfs(
+                args.raw_dir,
+                args.db_dir,
+                collection_name=args.collection,
+                embedding_model=(args.embedding_model or 'gemini-embedding-001'),
+                output_dimensionality=args.embedding_dim,
+            )
         return
 
     parser.print_help()

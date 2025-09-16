@@ -196,9 +196,9 @@ class ChromaGeminiRetriever(BaseRetriever):
 
 
 def run_rag(req: QueryRequest) -> Answer:
-    """Run RetrievalQA over Chroma with Gemini and return an Answer.
+    """Run RetrievalQA using the configured vector store backend.
 
-    - Loads a Chroma retriever pointing at `data/chroma` and collection `docs`.
+    - Supports `VECTOR_BACKEND=chroma` (default) or `pgvector`.
     - Uses a minimal Gemini LLM wrapper for generation.
     - Returns the answer text, top-k citations, and overall latency in ms.
     """
@@ -210,22 +210,78 @@ def run_rag(req: QueryRequest) -> Answer:
         pass
 
     # Config from env with sensible defaults
+    vector_backend = (os.getenv("VECTOR_BACKEND") or "chroma").lower()
     db_dir = os.getenv("CHROMA_DB_DIR", os.path.join("data", "chroma"))
-    collection = os.getenv("CHROMA_COLLECTION", "docs")
+    collection = os.getenv("CHROMA_COLLECTION") or os.getenv("PGVECTOR_COLLECTION") or "docs"
     embedding_model = os.getenv("GEMINI_EMBEDDING_MODEL") or "gemini-embedding-001"
     # Optional override if ingest used output_dimensionality
     emb_dim_env = os.getenv("GEMINI_EMBEDDING_DIM")
     embedding_dim = int(emb_dim_env) if emb_dim_env else None
     llm_model = os.getenv("GEMINI_LLM_MODEL") or "gemini-1.5-flash"
 
-    # Build retriever and LLM
-    retriever = ChromaGeminiRetriever(
-        db_dir=db_dir,
-        collection_name=collection,
-        k=req.k,
-        embedding_model=embedding_model,
-        embedding_dimensionality=embedding_dim,
-    )
+    # Build retriever based on backend
+    if vector_backend == "pgvector":
+        try:
+            from langchain_postgres import PGVector  # type: ignore
+        except Exception as e:  # pragma: no cover
+            raise RuntimeError(
+                "langchain-postgres is required for VECTOR_BACKEND=pgvector. Install with `pip install langchain-postgres psycopg[binary]`."
+            ) from e
+
+        from app.embeddings import GeminiEmbeddings
+
+        pg_uri = os.getenv("PGVECTOR_URL") or os.getenv("DATABASE_URL")
+        if not pg_uri:
+            raise ValueError("PGVECTOR_URL (or DATABASE_URL) must be set for pgvector backend")
+
+        embeddings = GeminiEmbeddings(
+            model=embedding_model,
+            output_dimensionality=embedding_dim,
+        )
+
+        vs = None
+        # 1) Try connection as a string via `connection`
+        try:
+            vs = PGVector(
+                embeddings=embeddings,
+                collection_name=collection,
+                connection=pg_uri,
+                use_jsonb=True,
+            )
+        except TypeError:
+            # 2) Try `connection_string`
+            try:
+                vs = PGVector(
+                    embeddings=embeddings,
+                    collection_name=collection,
+                    connection_string=pg_uri,
+                    use_jsonb=True,
+                )
+            except TypeError:
+                # 3) Try helper dataclasses
+                try:
+                    from langchain_postgres.vectorstores import ConnectionArgs  # type: ignore
+                    conn = ConnectionArgs.from_uri(pg_uri)
+                except Exception:
+                    from langchain_postgres.vectorstores import Connection  # type: ignore
+                    conn = Connection.from_uri(pg_uri)  # type: ignore[attr-defined]
+
+                vs = PGVector(
+                    embeddings=embeddings,
+                    collection_name=collection,
+                    connection=conn,
+                    use_jsonb=True,
+                )
+
+        retriever = vs.as_retriever(search_kwargs={"k": req.k})
+    else:
+        retriever = ChromaGeminiRetriever(
+            db_dir=db_dir,
+            collection_name=collection,
+            k=req.k,
+            embedding_model=embedding_model,
+            embedding_dimensionality=embedding_dim,
+        )
     llm = GeminiLLM(model=llm_model)
 
     # Compose RetrievalQA chain

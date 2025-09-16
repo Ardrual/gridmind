@@ -2,7 +2,7 @@ Gridmind — FastAPI + React/Vite RAG Playground
 
 - Backend: FastAPI service to query a small document set defined in `data/manifest.json`.
 - Frontend: React/Vite UI in `web/` that calls the FastAPI `/query` endpoint.
-- Ingest: a script that downloads PDFs listed in the manifest into `data/raw/` and can parse/vectorize them into a local ChromaDB store.
+- Ingest: a script that downloads PDFs listed in the manifest into `data/raw/` and can parse/vectorize them into a local ChromaDB store. Optionally, you can store vectors in Postgres (pgvector) via LangChain.
 
 Overview
 - Documents are declared in `data/manifest.json` with fields like `id`, `title`, `url`, `license`, `sha256`.
@@ -49,15 +49,23 @@ RAG Query Demo
 Ingest & Vectorize
 - Download only: `python -m scripts.ingest --download`
   - Reads `data/manifest.json` and saves PDFs to `data/raw/<id>.pdf`.
-- Vectorize: `python -m scripts.ingest --vectorize`
+- Vectorize (Chroma, default): `python -m scripts.ingest --vectorize`
   - If `data/raw/` has no PDFs, downloads from `data/manifest.json` first; otherwise skips download.
   - Parses PDFs with PyMuPDF, chunks text, and embeds into a persistent ChromaDB store at `data/chroma/` using Gemini embeddings (default: `gemini-embedding-001`).
 - Common flags:
   - `--manifest data/manifest.json` (default)
   - `--raw-dir data/raw` (default)
-  - `--db-dir data/chroma` (default)
+  - `--db-dir data/chroma` (default, Chroma only)
+  - `--collection docs` (vector store collection/namespace)
+  - `--vector-store {chroma|pgvector}` (choose backend; default `chroma` or env `VECTOR_BACKEND`)
+  - `--pg-uri postgresql+psycopg://user:pass@host:port/db` (pgvector only; or env `PGVECTOR_URL`/`DATABASE_URL`)
   - `--embedding-model gemini-embedding-001` (default or env `GEMINI_EMBEDDING_MODEL`)
   - `--embedding-dim 3072` (optional output dimensionality)
+
+Postgres/pgvector ingest examples
+- Local/dev Postgres: `python -m scripts.ingest --vectorize --vector-store pgvector --pg-uri postgresql+psycopg://user:pass@localhost:5432/mydb --collection docs`
+- Neon (production): set `PGVECTOR_URL` to your Neon connection URI, then run `python -m scripts.ingest --vectorize --vector-store pgvector`
+  - Ensure the `vector` extension is enabled in the database: `CREATE EXTENSION IF NOT EXISTS vector;`
 
 Citations
 - Each stored chunk includes metadata: `file_id`, `source` (PDF path), `page` (1‑based), and `chunk`.
@@ -78,9 +86,13 @@ Manifest Schema
 - The `id` becomes `file_id` in vector store metadata and the PDF filename (`data/raw/<id>.pdf`).
 
 Vector Store Details
-- Store: Chroma persistent DB at `data/chroma/`.
+- Backends
+  - Chroma (default): persisted at `data/chroma/`.
+  - Postgres (pgvector via LangChain): configured by `PGVECTOR_URL`/`--pg-uri`; rows are namespaced by `--collection`.
 - Document IDs: `<file_id>-<page:04d>-<chunk:04d>` (e.g., `clayton_evacuate_tips-0003-0001`).
-- Reset: delete `data/chroma/` to fully rebuild the vector store.
+- Reset
+  - Chroma: delete `data/chroma/` to fully rebuild.
+  - pgvector: delete rows for a collection: `DELETE FROM langchain_pg_embedding WHERE collection_id = (SELECT uuid FROM langchain_pg_collection WHERE name = 'docs');`
 
 Gemini Setup
 - Create an API key in Google AI Studio and place it in `.env` as `GOOGLE_API_KEY` (or `GEMINI_API_KEY`).
@@ -90,8 +102,9 @@ Gemini Setup
 - At query time, use the same embedding model for the user query to ensure vector-space compatibility; your generator LLM (Gemini 1.x) can be different from the embedding model.
 
 Query-Time Config (env)
-- `CHROMA_DB_DIR` (default: `data/chroma`) — path to Chroma persistence.
-- `CHROMA_COLLECTION` (default: `docs`) — collection name.
+- `VECTOR_BACKEND` (default: `chroma`; set to `pgvector` to use Postgres)
+- Chroma: `CHROMA_DB_DIR` (default: `data/chroma`), `CHROMA_COLLECTION` (default: `docs`)
+- pgvector: `PGVECTOR_URL` (or `DATABASE_URL`), `PGVECTOR_COLLECTION` (default: `docs`)
 - `GEMINI_EMBEDDING_MODEL` (default: `gemini-embedding-001`) — must match ingest.
 - `GEMINI_EMBEDDING_DIM` (optional int) — set if you used `output_dimensionality` during ingest.
 - `GEMINI_LLM_MODEL` (default: `gemini-1.5-flash`) — the generation model for answers.
@@ -101,7 +114,7 @@ Troubleshooting
 - “model is required”: ensure `GEMINI_EMBEDDING_MODEL` is not an empty string in `.env`, or pass `--embedding-model`.
 - Network required: embeddings call the Google AI API. Ensure your environment has outbound network access.
 
-Verify Vector Store
+Verify Vector Store (Chroma)
 ```python
 import chromadb, os
 client = chromadb.PersistentClient(path=os.path.join('data', 'chroma'))
@@ -114,11 +127,16 @@ print('sample_meta:', (res.get('metadatas') or [''])[0])
 Sanity Check Commands
 - Pytest (network-free): `python -m pytest -q tests/test_chroma_sanity.py`
   - Skips gracefully if `data/chroma/` or the `docs` collection is missing or empty.
-- Manual check script: `python -m scripts.check_chroma`
+- Manual check (Chroma): `python -m scripts.check_chroma`
   - Prints collection size and peeks a few items (ids, file_id, page, source).
   - Optional query (requires Gemini API key):
     - `python -m scripts.check_chroma --query "what is this corpus about?" --k 5`
   - Options: `--db-dir data/chroma`, `--collection docs`, `--embedding-model`, `--embedding-dim`.
+
+Manual check (pgvector)
+- `python -m scripts.check_pgvector --pg-uri postgresql+psycopg://user:pass@host:5432/db --collection docs`
+  - Optional query (requires Gemini API key): add `--query "what is this corpus about?" --k 5`
+  - Env alternatives: set `PGVECTOR_URL` and omit `--pg-uri`.
 
 RAG Internals
 - Retrieval: a custom retriever queries Chroma using a Gemini query embedding (via the same embedding path as ingest) for consistency.
